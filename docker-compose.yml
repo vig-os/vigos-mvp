@@ -1,0 +1,8 @@
+include:
+  - treafik.docker-compose.yml
+  - logging/logging.docker-compose.yml
+
+networks:
+  vigos_network:
+    name: vigos_network
+    driver: bridge

@@ -1,0 +1,93 @@
+---
+volumes:
+  loki_storage:
+    name: loki_storage
+  grafana_storage:
+    name: grafana_storage
+
+services:
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    command: "-config.file=/etc/loki/config.yaml -target=all -query-scheduler.use-scheduler-ring=false"
+    expose:
+      - 3100
+      - 7946
+      - 9095
+    volumes:
+      - ./loki-config.yaml:/etc/loki/config.yaml:ro
+      - loki_storage:/data
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3100/ready || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - vigos_network
+
+  alloy:
+    image: grafana/alloy:latest
+    container_name: alloy
+    volumes:
+      - ./alloy-local-config.yaml:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    command:  run --server.http.listen-addr=0.0.0.0:12345 --storage.path=/var/lib/alloy/data /etc/alloy/config.alloy
+    ports:
+      - 12345:12345
+    networks:
+      - vigos_network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.alloy.rule=Host(`${HOST}`) && PathPrefix(`/alloy`)"
+      - "traefik.http.middlewares.alloy-stripprefix.stripprefix.prefixes=/alloy"
+      - "traefik.http.routers.alloy.entrypoints=web"
+      # - "traefik.http.routers.alloy.tls"
+      - "traefik.http.routers.alloy.middlewares=alloy-stripprefix"
+      - "traefik.http.services.alloy.loadbalancer.server.port=12345"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    environment:
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_SERVER_ROOT_URL=http://${HOST}/grafana
+    expose:
+      - 3000
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - vigos_network
+    volumes:
+      - grafana_storage:/var/lib/grafana
+      - ./provisioning:/etc/grafana/provisioning:ro
+      - ./dashboards:/var/lib/grafana/dashboards:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`${HOST}`) && PathPrefix(`/grafana`)"
+      - "traefik.http.middlewares.grafana-stripprefix.stripprefix.prefixes=/grafana"
+      - "traefik.http.routers.grafana.entrypoints=web"
+      # - "traefik.http.routers.grafana.tls"
+      - "traefik.http.routers.grafana.middlewares=grafana-stripprefix"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+    configs:
+      - source: grafana.ini
+        target: /etc/grafana/grafana.ini
+    
+configs:
+  grafana.ini:
+   content: |
+    [auth.generic_oauth]
+      name = Authentik 
+      enabled = false
+      allow_sign_up = true
+      auth_url = https://authentik.ethz.ch/application/o/authorize/
+      token_url = https://authentik.ethz.ch/application/o/token/
+      api_url = https://authentik.ethz.ch/application/o/userinfo/
+      scopes = openid profile email
+      email_attribute_name = email
+      role_attribute_path = contains(groups, 'vigos-group') && 'Editor' || 'Visitor'

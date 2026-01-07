@@ -1,0 +1,33 @@
+services:
+  traefik:
+    image: "traefik:latest"
+    container_name: "traefik"
+    command:
+      - "--log.level=DEBUG"
+      - "--api.insecure=false"
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=true"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.address=:80"
+      - "--metrics.prometheus=true"
+      - "--providers.file.filename=/opt/traefik.yml"
+      - "--entryPoints.web.observability.metrics=true"
+    ports:
+      - "443:443"
+      - "80:80"
+    expose: 
+      - "8080"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`${HOST}`) && (PathPrefix(`/api`) || PathPrefix(`/dashboard`))"
+      # - "traefik.http.routers.dashboard.middlewares=${AUTH_MIDDLEWARE}"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.entrypoints=web"
+      # - "traefik.http.routers.dashboard.tls"
+      - "traefik.frontend.headers.passHostHeader=true"
+      - "traefik.http.services.dashboard.loadbalancer.server.port=8080"
+    networks:
+      - vigos_network
